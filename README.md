@@ -19,21 +19,22 @@ import com.google.gson._
 val jsonParser = new JsonParser()
 val gson = new GsonBuilder().setPrettyPrinting().create()
 
-val raw = sc.textFile("/shared/collections/twitter-2015-03-test-crawl/east/statuses.log.2015-03-01-00.gz");
+val raw = sc.textFile("/path/to/file");
 
 // Take five JSON records and print each out.
 for (r <- raw.take(5)) {
   println(gson.toJson(jsonParser.parse(r)))
 }
-
 ```
+
+Here's the [Gson API javadoc](http://google-gson.googlecode.com/svn/trunk/gson/docs/javadocs/index.html).
 
 Now let's analyze the tweets at scale. Here's how we start:
 
 ```
 import com.google.gson._
 
-val raw = sc.textFile("/shared/collections/twitter-2015-03-test-crawl/east/statuses.log.2015-03-01-00.gz");
+val raw = sc.textFile("/path/to/file");
 
 var tweets =
   raw.map(line => {
