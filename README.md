@@ -62,3 +62,32 @@ Let's say, find common terms, sort them, and save output to disk:
 ```
 wc.filter(t => t._2 > 100).sortByKey().saveAsTextFile("wc_out")
 ```
+
+Say that you have a method `extractFeatures` that converts a json tweet into a `Map[String, Float]`:
+
+```
+def extractFeatures(jsonTweet: String) : Map[String, Float] = {
+    new HashMap[String, Float]
+  }
+```
+
+The following builds a dictionary of features that appear at least in `countThreshlohd` documents, including the information needed to normalize the distribution of values into the normal standard distribution.
+
+```
+def buildDictionary(training: String, dictionary: String, countThreshlohd: Int) {
+    sc.textFile(training).
+      flatMap(jsonTweet => asScalaSet(extractFeatures(jsonTweet).entrySet).seq).
+      map(a => (a.getKey, (a.getValue, 0d, 1))).
+      reduceByKey((a, b) => {
+        var delta = (a._1 / a._3) - (b._1 / b._3)
+        var weight = (a._3 * b._3).toDouble / (a._3 + b._3)
+        var sum = a._1 + b._1
+        var diff = a._2 + b._2 + delta * delta * weight
+        var count = a._3 + b._3
+        (sum, diff, count)
+      }).
+      filter(a => a._2._3 >= countThreshlohd).
+      map(a => a._1 + "\t" + a._2._1 / a._2._3 + "\t" + Math.sqrt(a._2._2 / a._2._3)).
+      saveAsTextFile(dictionary)
+  }
+```
