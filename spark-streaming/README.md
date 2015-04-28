@@ -110,7 +110,6 @@ Note that you might need to set up the environment variable due to [this issue](
 
 ```
 $ export HADOOP_CONF_DIR=/etc/hadoop/conf
-$ spark-shell --master yarn-client --jars gson-2.3.1.jar --num-executors 10
 ```
 
 __NOTE__: Be sure to update your `twitter4j.properties` file and have it in the directory where you run `spark-submit`.
