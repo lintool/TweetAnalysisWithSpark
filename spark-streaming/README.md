@@ -22,7 +22,6 @@ All code referenced below appears in `edu.umd.cs.hcil.sparkstreamingtwitterdemo.
 
 1. Now that we're ready to code, we first need to make sure all we have all the necessary imports. Fortunately, for this simple example, we only need a few.
 
-		```
 		// Needed for all Spark jobs
 		import org.apache.spark.SparkConf
 		import org.apache.spark.SparkContext._
@@ -34,7 +33,6 @@ All code referenced below appears in `edu.umd.cs.hcil.sparkstreamingtwitterdemo.
 
 		// Only needed for utilities for streaming from Twitter
 		import org.apache.spark.streaming.twitter._
-		```
 
 1. In our main function, we can now configure Spark's streaming resources. The Spark config is straightforward, but creating the StreamingContext object takes an additional parameter called the _batch interval_. This interval should be set such that your cluster can process the data in less time than the interval, and it can have big implications for the rest of your system if set too low. Additionally, the batch interval provides a lower bound on how granular your real-time computation can be (e.g., no faster than every 5 seconds). We use 5 here as a conservative estimate. See Spark's [Performance Tuning](https://spark.apache.org/docs/latest/streaming-programming-guide.html#setting-the-right-batch-interval) for more information.
 
