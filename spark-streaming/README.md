@@ -23,10 +23,15 @@ All code referenced below appears in `edu.umd.cs.hcil.sparkstreamingtwitterdemo.
 1. Now that we're ready to code, we first need to make sure all we have all the necessary imports. Fortunately, for this simple example, we only need 4.
 
 ```
+\\ Needed for all Spark jobs
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext._
-import org.apache.spark.streaming.twitter._
+
+\\ Only needed for Spark Streaming
 import org.apache.spark.streaming.{Seconds, StreamingContext}
+
+\\ Only needed for utilities for streaming from Twitter
+import org.apache.spark.streaming.twitter._
 ```
 
 
