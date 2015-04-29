@@ -4,8 +4,6 @@
  * and open the template in the editor.
  */
 
-package edu.umd.cs.hcil.sparkstreamingtwitterdemo
-
 // Needed for all Spark jobs
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext._
