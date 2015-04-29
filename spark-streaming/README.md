@@ -36,16 +36,16 @@ import org.apache.spark.streaming.StreamingContext._
 import org.apache.spark.streaming.twitter._
 ```
 
-1. In our main function, we can now configure Spark's streaming resources. The Spark config is straightforward, but creating the StreamingContext object takes an additional parameter called the _batch interval_. This interval should be set such that your cluster can process the data in less time than the interval, and it can have big implications for the rest of your system if set too low. Additionally, the batch interval provides a lower bound on how granular your real-time computation can be (e.g., no faster than every 5 seconds). We use 5 here as a conservative estimate. See Spark's [Performance Tuning](https://spark.apache.org/docs/latest/streaming-programming-guide.html#setting-the-right-batch-interval) for more information.
+2. In our main function, we can now configure Spark's streaming resources. The Spark config is straightforward, but creating the StreamingContext object takes an additional parameter called the _batch interval_. This interval should be set such that your cluster can process the data in less time than the interval, and it can have big implications for the rest of your system if set too low. Additionally, the batch interval provides a lower bound on how granular your real-time computation can be (e.g., no faster than every 5 seconds). We use 5 here as a conservative estimate. See Spark's [Performance Tuning](https://spark.apache.org/docs/latest/streaming-programming-guide.html#setting-the-right-batch-interval) for more information.
 
 ```
-    // Set up the Spark configuration with our app name and any other config
-    // parameters you want (e.g., Kryo serialization or executor memory).
-    val sparkConf = new SparkConf().setAppName("TopHashtags")
+// Set up the Spark configuration with our app name and any other config
+// parameters you want (e.g., Kryo serialization or executor memory).
+val sparkConf = new SparkConf().setAppName("TopHashtags")
 
-    // Use the config to create a streaming context that creates a new RDD
-    // with a batch interval of every 5 seconds.
-    val ssc = new StreamingContext(sparkConf, Seconds(5))
+// Use the config to create a streaming context that creates a new RDD
+// with a batch interval of every 5 seconds.
+val ssc = new StreamingContext(sparkConf, Seconds(5))
 ```
 
 1. We then use the Spark streaming context to create our Twitter stream (though we won't connect to it just yet). Spark is nice in giving us easy utility functions to create this stream. The `None` object refers to authentication information, which we leave blank to force Twitter4j's default authentication (i.e., use the `twitter4j.properties` file). The `createStream()` function can also take a set of filter keywords as well, but we omit that here. For more information, see the [TwitterUtils API](https://spark.apache.org/docs/latest/api/scala/index.html#org.apache.spark.streaming.twitter.TwitterUtils$).
