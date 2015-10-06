@@ -12,6 +12,8 @@
  * permissions and limitations under the License.
  */
 
+import java.util.concurrent.TimeUnit
+
 import scala.collection.JavaConverters._
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
@@ -20,25 +22,11 @@ import org.apache.spark.SparkContext._
 import twitter4j.json.DataObjectFactory
 import java.util.Calendar
 import java.util.Date
-import java.text.SimpleDateFormat
-import java.util.Locale
+import java.text.SimpleDateFormat;
+import java.util.Locale;
 
-import edu.stanford.nlp.ling.CoreAnnotations.NamedEntityTagAnnotation
-import edu.stanford.nlp.ling.CoreAnnotations.PartOfSpeechAnnotation
-import edu.stanford.nlp.ling.CoreAnnotations.SentencesAnnotation
-import edu.stanford.nlp.ling.CoreAnnotations.TextAnnotation
-import edu.stanford.nlp.ling.CoreAnnotations.TokensAnnotation
-import edu.stanford.nlp.ling.CoreLabel
-import edu.stanford.nlp.neural.rnn.RNNCoreAnnotations
-import edu.stanford.nlp.pipeline.Annotation
-import edu.stanford.nlp.pipeline.StanfordCoreNLP
-import edu.stanford.nlp.sentiment.SentimentCoreAnnotations
-import edu.stanford.nlp.trees.Tree
-import edu.stanford.nlp.util.CoreMap
-import java.util.Properties
-
-object Sentiment {
-
+object DailyUserAge {
+  
   // Twitter's time format'
   def TIME_FORMAT = "EEE MMM d HH:mm:ss Z yyyy"
   
@@ -48,43 +36,17 @@ object Sentiment {
     val MINUTE, HOURLY, DAILY = Value
   }
   
-  // This class wraps the instantiation of Stanford's CoreNLP pipeline, which
-  //  we use for lazy initialization on each node's JVM
-  class CoreNlpWrapper {
-    val pipelineProps = new Properties()
-    pipelineProps.setProperty("ssplit.eolonly", "true")
-    pipelineProps.setProperty("annotators", "parse, sentiment")
-    pipelineProps.setProperty("enforceRequirements", "false")
-    pipelineProps.setProperty("sentiment.model", "model.ser.gz")
-
-    val tokenizerProps = new Properties()
-    tokenizerProps.setProperty("annotators", "tokenize, ssplit")
-
-    val tokenizer : StanfordCoreNLP = new StanfordCoreNLP(tokenizerProps)
-    val pipeline : StanfordCoreNLP = new StanfordCoreNLP(pipelineProps)
-  }
-  
-  // A wicked hack to perform expensive instantiation of the CoreNLP pipeline.
-  //  The transient annotation says to have a different coreNLP object in each
-  //  JVM, and the lazy tag tells the JVM to instantiate the object on first use
-  //  As a result, each node gets its own copy
-  object TransientCoreNLP {
-    @transient lazy val coreNLP = new CoreNlpWrapper()
-  }
-  
   /**
    * Print the usage message
    */
   def printHelp() : Unit = {
       println("Usage: spark-submit " + this.getClass.getCanonicalName + "<-m|-h|-d> <input_file> <output_dir> [numPartitions]")
-      println("\t -m \t sentiment for tweets per minute")
-      println("\t -h \t sentiment for tweets per hour")
-      println("\t -d \t sentiment for tweets per day")    
+      println("\t -m \t count tweets per minute")
+      println("\t -h \t count tweets per hour")
+      println("\t -d \t count tweets per day")    
   }
 
   /**
-   * Calculate the average sentiment per minute/hour/day from a set of tweets
-   *
    * @param args the command line arguments
    */
   def main(args: Array[String]): Unit = {
@@ -94,7 +56,7 @@ object Sentiment {
       sys.exit(1)
     }
     
-    val conf = new SparkConf().setAppName("Sentiment")
+    val conf = new SparkConf().setAppName("Daily User Agent")
     val sc = new SparkContext(conf)
     
     val timeScaleStr = args(0)
@@ -146,73 +108,30 @@ object Sentiment {
       })
     
     // For each status, create a tuple with its creation time (flattened to the 
-    //  correct time scale) and its text
-    val timedTweetText : RDD[Tuple2[Date, String]] = tweetsFiltered.map(status => {
-        val date = convertTimeToSlice(status.getCreatedAt, timeScale)
-        (date, status.getText)
-        
-      })
+    //  correct time scale) and a 1 for counting
+    val timedTweets = tweetsFiltered.map(status => {
+      val postDate = status.getCreatedAt
+      val bornDate = status.getUser.getCreatedAt
 
-    // Map (date, tweet) to (date, avg sentiment) for that tweet
-    val timedSentiments : RDD[Tuple2[Date, Tuple3[Double, Int, Int]]] =
-      timedTweetText.mapValues(tweetText => {
-        
-        val tokenizer = TransientCoreNLP.coreNLP.tokenizer
-        val pipeline = TransientCoreNLP.coreNLP.pipeline
-        
-        var posCount = 0
-        var negCount = 0
-        var scoreSum = 0d
-        var sentenceCount = 0
-        
-        // create an empty Annotation just with the given text
-        val document : Annotation = tokenizer.process(tweetText)
+      val diffInMillies = postDate.getTime() - bornDate.getTime()
+      val diffInDays = TimeUnit.DAYS.convert(diffInMillies, TimeUnit.MILLISECONDS)
 
-        // run all Annotators on this text
-        pipeline.annotate(document)
-
-        // For each sentence, calculate the sentiment and add to sum
-        val sentences = document.get(classOf[SentencesAnnotation]).asScala
-        for (sentence <- sentences) {
-
-          val tree = sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])
-          val score = RNNCoreAnnotations.getPredictedClass(tree)
-
-          scoreSum += score
-          sentenceCount += 1
-          
-          if ( score > 2 ) {
-            posCount += 1
-          }
-          else if ( score < 2 ) {
-            negCount += 1
-          }
-        }
-        
-        // The sentiment scale for the Stanford CoreNLP library is as follows:
-        // { 0:"Very Negative", 1:"Negative", 2:"Neutral", 3:"Positive", 4:"Very Positive"};
-        
-        // Calculate average sentiment score using summed sentiment over sentences.
-        //  If no sentences were found, default to 2, which is neutral
-        val avgScore = if ( sentenceCount> 0 ) { scoreSum / sentenceCount } else { 2 }
-        
-        // Return tuple of average sentiment, and count of positive and negative
-        //  sentences
-        (avgScore, posCount, negCount)
-      })
+      (convertTimeToSlice(status.getCreatedAt, timeScale), (diffInDays, 1))
+    })
     
-    // Find the per-window average sentiment, and sum +/- counts
-    val timedSentimentMeans : RDD[Tuple2[Date, Tuple3[Double, Int, Int]]] = 
-      timedSentiments.groupByKey.mapValues(sentValues => {
-        val sums = sentValues.reduce((l, r) => (l._1 + r._1, l._2 + r._2, l._3 + r._3))
-        val count = sentValues.size
-        
-        val sentMean = sums._1.toDouble / count
-        (sentMean, sums._2, sums._3)
-      })
+    // Sum up the counts by date
+    val groupedCounts : RDD[(Date, Double)] = timedTweets.reduceByKey((l, r) => {
+      val leftDays = l._1
+      val leftCount = l._2
+
+      val rightDays = r._1
+      val rightCount = r._2
+
+      (leftDays + rightDays, leftCount + rightCount)
+    }).mapValues(tuple => tuple._1.asInstanceOf[Double] / tuple._2.asInstanceOf[Double])
     
     // Pull out just the times
-    val times = timedSentimentMeans.map(tuple => {
+    val times = groupedCounts.map(tuple => {
         tuple._1
       })
     
@@ -241,21 +160,19 @@ object Sentiment {
     //  1% stream, but filtered streams aren't guarateed to have data in each
     //  time step.
     val fullKeyList = constructDateList(minTime, maxTime, timeScale)
-    val fullKeyRdd : RDD[Tuple2[Date, Tuple3[Double, Int, Int]]] = 
-      sc.parallelize(fullKeyList).map(key => (key, (0d,0,0)))
+    val fullKeyRdd : RDD[Tuple2[Date, Double]] =
+      sc.parallelize(fullKeyList).map(key => (key, 0d))
     
     // Merge the full date list and regular data
-    val withFullDates = timedSentimentMeans.union(fullKeyRdd)
-    val mergedDates : RDD[Tuple2[Date, Tuple3[Double, Int, Int]]] = 
-      withFullDates.reduceByKey((l, r) => (l._1 + r._1, l._2 + r._2, l._3 + r._3))
+    val withFullDates = groupedCounts.union(fullKeyRdd)
+    val mergedDates = withFullDates.reduceByKey((l, r) => l + r)
     
     // Sort for printing
     val sliceCounts = mergedDates.sortByKey()
     
     // Convert to a CSV string and save
     sliceCounts.map(tuple => {
-        val (mean, posCount, negCount) = tuple._2
-        dateFormatter(tuple._1) + ", " + mean + ", " + posCount + ", " + negCount
+        dateFormatter(tuple._1) + ", " + tuple._2
       }).saveAsTextFile(outputPath)
   }
   
