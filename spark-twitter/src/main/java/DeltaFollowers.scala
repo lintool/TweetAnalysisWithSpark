@@ -18,19 +18,29 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import twitter4j.json.DataObjectFactory
+import twitter4j.Status
 import java.util.Calendar
 import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 /*
- * Count the number of tweets, retweets, mentions, hashtags, and urls
+ * Find the average change in followers for users who show up multiple times
+ * Workflow is as follows:
+ * Find users who appear multiple times in the time frame
+ *    - map tweets to (user_id, List[tweets])
+ *    - filter out lists of size 1
+ *    - Sort list of tweets by created_at date
+ *  Calculate the difference between followers at the first tweet and followers at the
+ *  last tweet
+ *    - map sorted (user_id, List[tweets]) to (user_id, diff)
+ *  Find the average
  */
-object ActivityFrequency {
+object DeltaFollowers {
   
   // Twitter's time format'
   def TIME_FORMAT = "EEE MMM d HH:mm:ss Z yyyy"
-
+  
   // Flag for the scale we are counting in
   object TimeScale extends Enumeration {
     type TimeScale = Value
@@ -38,47 +48,23 @@ object ActivityFrequency {
   }
 
   /**
-   * Print the usage message
-   */
-  def printHelp() : Unit = {
-    println("Usage: spark-submit " + this.getClass.getCanonicalName + "<-m|-h|-d> <input_file> <output_dir> [numPartitions]")
-    println("\t -m \t count tweets per minute")
-    println("\t -h \t count tweets per hour")
-    println("\t -d \t count tweets per day")
-  }
-
-  /**
    * @param args the command line arguments
    */
   def main(args: Array[String]): Unit = {
     
-    val conf = new SparkConf().setAppName("Activity Frequency")
+    val conf = new SparkConf().setAppName("UserFrequency")
     val sc = new SparkContext(conf)
 
-    val timeScaleStr = args(0)
-    val dataPath = args(1)
-    val outputPath = args(2)
-
-    // Validate and set time scale
-    var timeScale = TimeScale.MINUTE
-    if ( timeScaleStr == "-m" ) {
-      timeScale = TimeScale.MINUTE
-    } else if ( timeScaleStr == "-h" ) {
-      timeScale = TimeScale.HOURLY
-    } else if ( timeScaleStr == "-d" ) {
-      timeScale = TimeScale.DAILY
-    } else {
-      printHelp()
-      sys.exit(1)
-    }
+    val dataPath = args(0)
+    val outputPath = args(1)
     
     val twitterMsgsRaw = sc.textFile(dataPath)
     println("Initial Partition Count: " + twitterMsgsRaw.partitions.size)
     
     // Repartition if desired using the new partition count
     var twitterMsgs = twitterMsgsRaw
-    if ( args.size > 3 ) {
-      val initialPartitions = args(3).toInt
+    if ( args.size > 2 ) {
+      val initialPartitions = args(2).toInt
       twitterMsgs = twitterMsgsRaw.repartition(initialPartitions)
       println("New Partition Count: " + twitterMsgs.partitions.size)
     }
@@ -94,46 +80,35 @@ object ActivityFrequency {
         } catch {
           case e : Exception => null
         }
-      })
-    
-    // Only keep non-null status with text
-    val tweetsFiltered = tweets.filter(status => {
-        status != null &&
-        status.getText != null &&
-        status.getText.size > 0
-      })
+      }).filter(status => status != null)
 
-    // For each status, create a tuple with its creation time (flattened to the
-    //  correct time scale) and a 1 for counting
-    val timedTweets = tweetsFiltered.map(status => {
-      val rtCount = if (status.isRetweet) 1 else 0
-      val mentionCount = if ( status.getUserMentionEntities.size > 0 ) 1 else 0
-      val urlCount = if ( status.getURLEntities.size > 0 ) 1 else 0
-      val mediaCount = if ( status.getMediaEntities.size > 0 ) 1 else 0
-      val hashtagCount = if ( status.getHashtagEntities.size > 0 ) 1 else 0
-      (convertTimeToSlice(status.getCreatedAt, timeScale), (1, rtCount, mentionCount, urlCount, mediaCount, hashtagCount))
+    // Find all the statuses by each user and remove users with only one status
+    val userTuples : RDD[(Long, List[Status])] = tweets
+      .map(status => (status.getUser.getId, List(status)))
+      .reduceByKey(_ ++ _)
+      .map(tuple => (tuple._1, tuple._2.sortBy(status => status.getCreatedAt)))
+      .filter(tuple => tuple._2.size > 1)
+
+    // Cache since we use this RDD a few times
+    userTuples.cache()
+
+    val userFollowerDifferences = userTuples.map(tuple => {
+      val statuses = tuple._2
+
+      val firstStatus = statuses.head
+      val lastStatus = statuses.last
+
+      val diff = lastStatus.getUser.getFollowersCount - firstStatus.getUser.getFollowersCount
+
+      (tuple._1, diff)
     })
+    userFollowerDifferences.repartition(newPartitionSize)
+      .saveAsTextFile(outputPath + "/userFollowerDifferences", classOf[org.apache.hadoop.io.compress.GzipCodec])
 
-    // Sum up the different counts
-    val datedCounts = timedTweets.reduceByKey((l, r) => {
-      (l._1 + r._1, l._2 + r._2, l._3 + r._3, l._4 + r._4, l._5 + r._5, l._6 + r._6)
-    })
-    
-    // Convert to a CSV string and save
-    datedCounts.map(tuple => {
-      val date = dateFormatter(tuple._1)
+    val diffs = userFollowerDifferences.map(tuple => tuple._2).collect()
+    val avgDiff = diffs.sum.toDouble / diffs.size.toDouble
 
-      val counts = tuple._2
-
-      val tweetCount = counts._1
-      val rtCount = counts._2
-      val mentionCount = counts._3
-      val urlCount = counts._4
-      val mediaCount = counts._5
-      val hashtagCount = counts._6
-
-        f"$date%s, $tweetCount%d, $rtCount%d, $mentionCount%d, $urlCount%d, $mediaCount%d, $hashtagCount%d"
-      }).saveAsTextFile(outputPath)
+    println(s"Average Difference in Followers: $avgDiff")
   }
   
   /**
