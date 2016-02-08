@@ -12,12 +12,17 @@
  * permissions and limitations under the License.
  */
 
+import java.io.FileWriter
+
+import org.apache.commons.csv.{CSVFormat, CSVPrinter}
+
 import scala.collection.JavaConverters._
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import twitter4j.json.DataObjectFactory
+import twitter4j.Status
 import java.util.Calendar
 import java.util.Date
 import java.text.SimpleDateFormat;
@@ -46,23 +51,68 @@ object UsersBeforeAndAfter {
 
     val partSize : Option[Int] = if ( args.length > 3 ) { Some(args(3).toInt) } else { None }
 
-    val beforeUsers = getUsers(beforePath, sc, partSize)
-    val afterUsers = getUsers(afterPath, sc, partSize)
+    val beforeTweets = getTweets(beforePath, sc, partSize)
+    beforeTweets.cache()
+    val beforeUsers = getUsers(beforeTweets)
 
-    val commonUsers = beforeUsers.intersection(afterUsers)
-    println("Number of users in common: " + commonUsers.count())
+    val afterTweets = getTweets(afterPath, sc, partSize)
+    afterTweets.cache()
+    val afterUsers = getUsers(afterTweets)
 
-    commonUsers.saveAsTextFile(outputPath)
+    val commonUsers = beforeUsers.intersection(afterUsers).collect()
+    println("Number of users in common: " + commonUsers.length)
+
+    val beforeTweetCounts = beforeTweets.flatMap(status => {
+      if ( status.isRetweet ) {
+        List((status.getUser.getId, 1), (status.getRetweetedStatus.getUser.getId, 1))
+      } else {
+        List((status.getUser.getId, 1))
+      }
+    }).reduceByKey((l, r) => l + r)
+      .collectAsMap()
+
+    val afterTweetCounts = afterTweets.flatMap(status => {
+      if ( status.isRetweet ) {
+        List((status.getUser.getId, 1), (status.getRetweetedStatus.getUser.getId, 1))
+      } else {
+        List((status.getUser.getId, 1))
+      }
+    }).reduceByKey((l, r) => l + r)
+      .collectAsMap()
+
+    val idToUserMap = afterTweets.flatMap(status => {
+      if ( status.isRetweet ) {
+        List((status.getUser.getId, status.getUser.getScreenName), (status.getRetweetedStatus.getUser.getId, status.getRetweetedStatus.getUser.getScreenName))
+      } else {
+        List((status.getUser.getId, status.getUser.getScreenName))
+      }
+    }).collectAsMap()
+
+
+    val outputFileWriter : FileWriter = new FileWriter(outputPath)
+    val writer = new CSVPrinter(outputFileWriter, CSVFormat.DEFAULT)
+    for ( id <- commonUsers ) {
+      val screenname = idToUserMap(id)
+      val beforeCount = beforeTweetCounts(id)
+      val afterCount = afterTweetCounts(id)
+
+      val elements : List[String] = List(id.toString, screenname, beforeCount.toString, afterCount.toString)
+
+      writer.printRecord(elements.asJava)
+    }
+    writer.flush()
+    outputFileWriter.close()
+
   }
 
   /**
-   * Return a set of user IDs given a set of tweets
+   * Return a set of tweets
    *
    * @param dataPath Data to read
    * @param sc The date to convert
    * @param partitionSize An int if we want to repartition the input. Can be none
    */
-  def getUsers(dataPath : String, sc : SparkContext, partitionSize : Option[Int]) : RDD[Long] = {
+  def getTweets(dataPath : String, sc : SparkContext, partitionSize : Option[Int]) : RDD[Status] = {
 
     val twitterMsgsRaw = sc.textFile(dataPath)
 
@@ -85,13 +135,23 @@ object UsersBeforeAndAfter {
       }
     }).filter(status => status != null)
 
+    return tweets
+  }
+
+  /**
+   * Return a set of user IDs given a set of tweets
+   *
+   * @param tweets Tweets from which to extract users
+   */
+  def getUsers(tweets : RDD[Status]) : RDD[Long] = {
+
     val users : RDD[Long] = tweets.flatMap(status => {
       if ( status.isRetweet ) {
         List(status.getUser.getId, status.getRetweetedStatus.getUser.getId)
       } else {
         List(status.getUser.getId)
       }
-    }).distinct()
+    })
 
     return users
   }
