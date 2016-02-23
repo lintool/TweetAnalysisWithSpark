@@ -158,7 +158,7 @@ object USStateCounter {
     
     val file = new File(shapePath);
     val dataStore = new ShapefileDataStore(file.toURI().toURL())
-    
+
     val reader = dataStore.getFeatureReader()
     while ( reader.hasNext ) {
       val ftr = reader.next
