@@ -1,7 +1,8 @@
 package edu.umd.cs.hcil.spark.analytics
 
+import edu.umd.cs.hcil.spark.analytics.utils.StatusTokenizer
 import org.apache.spark.rdd.RDD
-import org.apache.spark.{SparkContext, SparkConf}
+import org.apache.spark.{SparkConf, SparkContext}
 import twitter4j.TwitterObjectFactory
 
 /**
@@ -44,13 +45,13 @@ object KLDivergence {
   }
 
   /**
-   * Convert each JSON line in the file to a status using Twitter4j
-   * Note that not all lines are Status lines, so we catch any exception
-   * generated during this conversion and set to null since we don't care
-   * about non-status lines.'
-   *
-   * @param rdd The JSON strings of tweets
-   */
+    * Convert each JSON line in the file to a status using Twitter4j
+    * Note that not all lines are Status lines, so we catch any exception
+    * generated during this conversion and set to null since we don't care
+    * about non-status lines.'
+    *
+    * @param rdd The JSON strings of tweets
+    */
   def jsonTweetsToTokenFrequency(rdd : RDD[String]) : RDD[(String, Int)] = {
 
     // build the status from tweets

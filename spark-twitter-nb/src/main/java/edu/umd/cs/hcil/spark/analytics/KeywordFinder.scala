@@ -11,8 +11,10 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import java.lang.reflect.Type
+
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import edu.umd.cs.hcil.spark.analytics.utils.{JsonUtils, StatusTokenizer}
 import twitter4j.Status
 import twitter4j.json.DataObjectFactory
 
@@ -48,7 +50,7 @@ object KeywordFinder {
       println("New Partition Count: " + twitterMsgs.partitions.size)
     }
 
-    val tweets = twitterMsgs.map(line => (line, jsonToStatus(line))).filter(item => item._2 != null)
+    val tweets = twitterMsgs.map(line => (line, JsonUtils.jsonToStatus(line))).filter(item => item._2 != null)
     val tweetTexts = tweets.filter(tuple => {
       val status = tuple._2
 
@@ -73,17 +75,5 @@ object KeywordFinder {
     val intersection = tokens.intersect(keywords)
 
     return intersection.length > 0
-  }
-
-  def jsonToStatus(line : String) : Status = {
-    try {
-      val status = DataObjectFactory.createStatus(line)
-      return status
-    } catch {
-      case npe : NullPointerException => return null
-      case e : Exception =>
-        println("Unable to parse JSON:" + e)
-        return null
-    }
   }
 }

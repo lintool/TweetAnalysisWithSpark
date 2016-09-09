@@ -23,20 +23,16 @@ import org.apache.spark.SparkContext._
 import twitter4j.json.DataObjectFactory
 import java.util.Calendar
 import java.util.Date
-import java.text.SimpleDateFormat;
-import java.util.Locale;
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+import edu.umd.cs.hcil.spark.analytics.utils.TimeScale
 
 object TweetFrequency {
   
   // Twitter's time format'
   def TIME_FORMAT = "EEE MMM d HH:mm:ss Z yyyy"
-  
-  // Flag for the scale we are counting in
-  object TimeScale extends Enumeration {
-    type TimeScale = Value
-    val MINUTE, HOURLY, DAILY = Value
-  }
-  
+
   /**
    * Print the usage message
    */
@@ -178,7 +174,7 @@ object TweetFrequency {
   /**
    * Flatten timestamp to the appropriate scale
    *
-   * @param date The date to flatten
+   * @param time The date to flatten
    * @param scale The scale we're using
    */
   def convertTimeToSlice(time : Date, scale : TimeScale.Value) : Date = {

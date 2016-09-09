@@ -24,19 +24,15 @@ import twitter4j.json.DataObjectFactory
 import twitter4j.Status
 import java.util.Calendar
 import java.util.Date
-import java.text.SimpleDateFormat;
-import java.util.Locale;
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+import edu.umd.cs.hcil.spark.analytics.utils.{JsonUtils, TimeScale}
 
 object UniqueUserFrequency {
   
   // Twitter's time format'
   def TIME_FORMAT = "EEE MMM d HH:mm:ss Z yyyy"
-  
-  // Flag for the scale we are counting in
-  object TimeScale extends Enumeration {
-    type TimeScale = Value
-    val MINUTE, HOURLY, DAILY = Value
-  }
 
   /**
    * Print the usage message
@@ -89,13 +85,7 @@ object UniqueUserFrequency {
     //  Note that not all lines are Status lines, so we catch any exception
     //  generated during this conversion and set to null since we don't care
     //  about non-status lines.'
-    val tweets = twitterMsgs.map(line => {
-        try {
-          DataObjectFactory.createStatus(line)
-        } catch {
-          case e : Exception => null
-        }
-      })
+    val tweets = twitterMsgs.map(JsonUtils.jsonToStatus(_))
     
     val datedCounts = userCounter(tweets, timeScale)
     
@@ -138,12 +128,17 @@ object UniqueUserFrequency {
 
 
     // Convert to tuple of (Date, Count)
-    val datedCounts = tweetsFiltered.map(status => {
-      (convertTimeToSlice(status.getCreatedAt, timeScale), Array(status.getUser.getId))
-    }).reduceByKey((l, r) => l ++ r)
-    .mapValues(arr => arr.distinct.length)
+//    val dateCounts = tweetsFiltered.map(status => {
+//      (convertTimeToSlice(status.getCreatedAt, timeScale), Array(status.getUser.getId))
+//    }).reduceByKey((l, r) => l.union(r).distinct)
+//    .mapValues(arr => arr.length)
 
-    return datedCounts
+    val userDates = tweetsFiltered.map(status => (status.getUser.getId, Set(convertTimeToSlice(status.getCreatedAt, timeScale))))
+      .reduceByKey((l, r) => l.union(r))
+    val datePairs = userDates.flatMap(tuple => tuple._2.map(d => (d, 1)))
+    val dateCounts = datePairs.reduceByKey((l, r) => l + r)
+
+    return dateCounts
   }
 
   /**

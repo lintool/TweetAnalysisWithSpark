@@ -1,10 +1,12 @@
-package edu.umd.cs.hcil.spark.analytics
+package edu.umd.cs.hcil.spark.analytics.utils
 
 /**
  * Created by cbuntain on 5/31/16.
  */
-import twitter4j._
 import java.util.regex.Pattern
+
+import twitter4j._
+
 import scala.io.Source
 
 object StatusTokenizer {

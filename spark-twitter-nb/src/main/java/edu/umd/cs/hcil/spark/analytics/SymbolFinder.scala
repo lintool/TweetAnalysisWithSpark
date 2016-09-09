@@ -6,20 +6,16 @@ package edu.umd.cs.hcil.spark.analytics
  */
 
 import twitter4j.json.DataObjectFactory
-
+import twitter4j.Status
 import scala.collection.JavaConverters._
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
-import java.lang.reflect.Type
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+
+import edu.umd.cs.hcil.spark.analytics.utils.JsonUtils
 
 object SymbolFinder {
-
-  def gson = { new Gson() }
-  val mapType : Type = new TypeToken[java.util.HashMap[String,Object]]() {}.getType()
 
   /**
    * @param args the command line arguments
@@ -49,12 +45,9 @@ object SymbolFinder {
     }
 
     val tweets = twitterMsgs.map(line => {
-      try {
-        (line, DataObjectFactory.createStatus(line))
-      } catch {
-        case e : Exception => (line, null)
-      }
+      (line, JsonUtils.jsonToStatus(line))
     })
+
     val tweetTexts = tweets.filter(tuple => {
       val status = tuple._2
 
@@ -63,23 +56,26 @@ object SymbolFinder {
     })
 
     val relevantTweetJson = tweetTexts.filter(tuple => {
-      var flag = false
-
-      val searchText = if ( tuple._2.isRetweet == true) {
-        tuple._2.getText.toLowerCase + tuple._2.getRetweetedStatus.getText.toLowerCase
-      } else {
-        tuple._2.getText.toLowerCase
-      }
-
-      for ( symbol <- keywords ) {
-        if ( searchText.contains(symbol) == true ) {
-          flag = true
-        }
-      }
-
-      flag
+      symbolFinder(keywords, tuple._2)
     }).map(tuple => tuple._1)
 
     relevantTweetJson.saveAsTextFile(outputPath, classOf[org.apache.hadoop.io.compress.GzipCodec])
+  }
+
+  def symbolFinder(keywords : List[String], status : Status) : Boolean = {
+
+    val searchText = if ( status.isRetweet == true) {
+      status.getText.toLowerCase + status.getRetweetedStatus.getText.toLowerCase
+    } else {
+      status.getText.toLowerCase
+    }
+
+    for ( symbol <- keywords ) {
+      if ( searchText.contains(symbol) == true ) {
+        return true
+      }
+    }
+
+    return false
   }
 }

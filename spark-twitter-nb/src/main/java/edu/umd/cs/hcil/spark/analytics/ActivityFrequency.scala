@@ -27,6 +27,8 @@ import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+import edu.umd.cs.hcil.spark.analytics.utils.{JsonUtils, TimeScale}
+
 /*
  * Count the number of tweets, retweets, mentions, hashtags, and urls
  */
@@ -34,12 +36,6 @@ object ActivityFrequency {
   
   // Twitter's time format'
   def TIME_FORMAT = "EEE MMM d HH:mm:ss Z yyyy"
-
-  // Flag for the scale we are counting in
-  object TimeScale extends Enumeration {
-    type TimeScale = Value
-    val MINUTE, HOURLY, DAILY = Value
-  }
 
   /**
    * Print the usage message
@@ -92,13 +88,7 @@ object ActivityFrequency {
     //  Note that not all lines are Status lines, so we catch any exception
     //  generated during this conversion and set to null since we don't care
     //  about non-status lines.'
-    val tweets = twitterMsgs.map(line => {
-        try {
-          DataObjectFactory.createStatus(line)
-        } catch {
-          case e : Exception => null
-        }
-      })
+    val tweets = twitterMsgs.map(JsonUtils.jsonToStatus(_))
 
     val datedCounts = activityCounter(tweets, timeScale)
     
