@@ -51,11 +51,13 @@
       <groupId>org.scala-lang</groupId>
       <artifactId>scala-library</artifactId>
       <version>${scala.version}</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-core_2.10</artifactId>
       <version>1.6.2</version>
+        <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.twitter4j</groupId>
@@ -160,25 +162,23 @@
     </resources>
     <plugins>
       <plugin>
-        <groupId>org.scala-tools</groupId>
-        <artifactId>maven-scala-plugin</artifactId>
-        <version>2.15.0</version>
+        <groupId>net.alchim31.maven</groupId>
+        <artifactId>scala-maven-plugin</artifactId>
+        <version>3.2.1</version>
         <executions>
           <execution>
             <goals>
               <goal>compile</goal>
               <goal>testCompile</goal>
             </goals>
-            <configuration>
-              <args>
-                <arg>-deprecation</arg>
-                <arg>-make:transitive</arg>
-                <arg>-dependencyfile</arg>
-                <arg>${project.build.directory}/.scala_dependencies</arg>
-              </args>
-            </configuration>
           </execution>
         </executions>
+        <configuration>
+          <args>
+            <!-- work-around for https://issues.scala-lang.org/browse/SI-8358 -->
+            <arg>-nobootcp</arg>
+          </args>
+        </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-assembly-plugin</artifactId>

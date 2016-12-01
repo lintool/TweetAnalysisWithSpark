@@ -22,8 +22,10 @@ import it.uniroma1.dis.wsngroup.gexf4j.core.{EdgeType, Gexf, Mode, Node}
 import it.uniroma1.dis.wsngroup.gexf4j.core.impl.{GexfImpl, StaxGraphWriter}
 import it.uniroma1.dis.wsngroup.gexf4j.core.impl.data.AttributeListImpl
 import org.apache.spark.{SparkContext, _}
+import org.apache.spark.SparkContext._
 import org.apache.spark.graphx._
 import org.apache.spark.rdd.RDD
+import org.apache.spark.HashPartitioner
 import twitter4j.Status
 
 object TweetsToGraph {
@@ -168,5 +170,122 @@ object TweetsToGraph {
     val trimmedSub = subgraphWithDegree.mapVertices((id, attr) => attr._1)
 
     return trimmedSub
+  }
+
+  def getFeatures(status : Status) : Array[String] = {
+    val userMentions = status.getUserMentionEntities.map(entity => {
+      val mentionedUser = "@" + entity.getScreenName.toLowerCase
+      mentionedUser
+    })
+
+    val hashtagMentions = status.getHashtagEntities.map(entity => {
+      val hashtag = "#" + entity.getText.toLowerCase
+      hashtag
+    })
+
+    val urlTlds = status.getURLEntities.filter(entity => entity.getExpandedURL != null).map(entity => {
+      val localUrl = entity.getExpandedURL.toLowerCase
+      val colonLoc = localUrl.indexOf(":")
+      val endTldLoc = localUrl.indexOf("/", colonLoc + 3)
+
+      val tld = if ( endTldLoc > -1 ) { localUrl.substring(colonLoc+3, endTldLoc) } else { localUrl.substring(colonLoc+3) }
+      tld
+    })
+
+    val features = userMentions ++ hashtagMentions ++ urlTlds
+
+    features.distinct
+  }
+
+  def getTopicGraph(tweets : RDD[Status],
+                    removeTopK : Double = 0.01,
+                    minTweetCount : Int = 30,
+                    minEntityCount : Long = 30,
+                    minDegreeCount : Int = 30
+                   ) : Graph[TwitterUser, Int] = {
+
+    // Filter out users who tweet rarely
+    val validUsers = tweets
+      .map(status => (status.getUser.getId, getFeatures(status).toSet))
+      .reduceByKey((l, r) => l ++ r)
+      .filter(tup => tup._2.size > minTweetCount)
+      .map(tup => tup._1)
+      .collect
+      .toSet
+
+    // only keep tweets by relevant users
+    val validTweets = tweets.filter(status => validUsers.contains(status.getUser.getId))
+
+    // Convert statuses to tuples of (Entity, UserID)
+    val entityTuples = validTweets.flatMap(status => {
+      val author = status.getUser.getId
+
+      getFeatures(status).map(feature => (feature.hashCode, author))
+    })
+
+    // For each entity, count the number of times it is used
+    val entityCounts : RDD[(Int, Long)] = entityTuples.mapValues(entityTuple => 1L).reduceByKey((l, r) => l + r)
+
+    // Get a sorted list of entity frequencies
+    val sortedCounts = entityCounts.map(tup => tup._2).sortBy(k => k, ascending = false).collect()
+    val topKIndex = (sortedCounts.length * removeTopK).round.toInt
+    val thresholdFreq = sortedCounts(topKIndex)
+
+    println("Truncating first [" + topKIndex +"] of " + sortedCounts.length + " items, frequency: " + thresholdFreq)
+
+    // Only keep entities who appear more than the given min threshold and less than the top-K threshold
+    val validEntities = entityCounts.filter(tup => tup._2 > minEntityCount && tup._2 < thresholdFreq)
+
+    // Use the valid entity list to filter the original entity list and then convert back to (mention key, user id)
+    val filteredEntityTuples : RDD[(Int, Long)] = validEntities.join(entityTuples).map(tup => (tup._1, tup._2._2))
+
+
+
+    // Make edges either using combinations per feature or by building a cartesian product
+    val edges : RDD[Edge[Int]] = {
+      // These lines create a list of users per mention key, but these lists are localized per key, which may overrun
+      //  main memory.
+      val creator = (userId : Long) => {
+        scala.collection.mutable.Set(userId)
+      }
+      val appender = (userArr : scala.collection.mutable.Set[Long], userId : Long) => {
+        userArr += userId
+      }
+      val combiner = (arr1: scala.collection.mutable.Set[Long], arr2: scala.collection.mutable.Set[Long]) => {
+        arr1 ++= arr2
+      }
+
+      val entityCount : Long = validEntities.reduce((l, r) => (0, l._2 + r._2))._2
+      val partCount : Int = (100*Math.log(entityCount) + 100).toInt
+
+      // Create lists of the users of each entity
+      val entityLists : RDD[(Int, scala.collection.mutable.Set[Long])] = filteredEntityTuples
+        .combineByKeyWithClassTag(creator, appender, combiner, partCount)
+
+      entityLists.flatMapValues(userList => {
+        val combos = userList.toArray
+          .combinations(2)
+          .flatMap(arr => Array(Edge(arr(0), arr(1), 1), Edge(arr(1), arr(0), 1)))
+
+        combos
+      }).map( tup => tup._2 )
+
+    }
+
+    // Create an RDD of user objects
+    val userVertices : RDD[(VertexId, TwitterUser)] = tweets.map(status => {
+      (status.getUser.getId, TwitterUser(status.getUser.getId, status.getUser.getScreenName))
+    })
+
+    // Create a graph from these users and edges
+    val graph = Graph(userVertices, edges).groupEdges((left, right) => left + right)
+
+    // Restrict the graph to only those users with minimum degree
+    val degreeGraph = graph.outerJoinVertices(graph.outDegrees)({(id, oldAttr, degreeOpt) =>
+      degreeOpt.getOrElse(0)})
+    val degreeSubgraph = degreeGraph.subgraph(vpred = (vertexId, deg) => deg > minDegreeCount)
+    val restrictedGraph = graph.mask(degreeSubgraph)
+
+    return restrictedGraph
   }
 }

@@ -64,7 +64,7 @@ object TweetQuery {
     val scoredPairs = statusList.mapPartitions(iter => {
       // Construct an analyzer for our tweet text
       val analyzer = new StandardAnalyzer()
-      val parser = new StandardQueryParser()
+      val parser = new StandardQueryParser(analyzer)
 
       // Use OR to be consistent with Gnip
       parser.setDefaultOperator(org.apache.lucene.queryparser.flexible.standard.config.StandardQueryConfigHandler.Operator.AND)
