@@ -10,7 +10,7 @@
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <encoding>UTF-8</encoding>
-    <scala.version>2.10.4</scala.version>
+    <scala.version>2.11.8</scala.version>
     <geotools.version>12.2</geotools.version>
   </properties>
   <licenses>
@@ -55,19 +55,20 @@
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
-      <artifactId>spark-core_2.10</artifactId>
-      <version>1.6.2</version>
+      <artifactId>spark-core_2.11</artifactId>
+      <version>2.1.1</version>
         <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-mllib_2.11</artifactId>
+      <version>2.1.1</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.twitter4j</groupId>
       <artifactId>twitter4j-core</artifactId>
       <version>4.0.4</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-mllib_2.10</artifactId>
-      <version>1.6.2</version>
     </dependency>
     <dependency>
       <groupId>com.google.code.gson</groupId>
@@ -130,6 +131,12 @@
       <artifactId>gexf4j</artifactId>
       <version>1.0.0</version>
     </dependency>
+    <!-- https://mvnrepository.com/artifact/nz.ac.waikato.cms.weka/weka-stable -->
+    <dependency>
+      <groupId>nz.ac.waikato.cms.weka</groupId>
+      <artifactId>weka-stable</artifactId>
+      <version>3.8.0</version>
+    </dependency>
 
 
 
@@ -162,24 +169,76 @@
     </resources>
     <plugins>
       <plugin>
-        <groupId>net.alchim31.maven</groupId>
-        <artifactId>scala-maven-plugin</artifactId>
-        <version>3.2.1</version>
+        <groupId>org.scala-tools</groupId>
+        <artifactId>maven-scala-plugin</artifactId>
+        <version>2.15.0</version>
         <executions>
           <execution>
             <goals>
               <goal>compile</goal>
               <goal>testCompile</goal>
             </goals>
+            <configuration>
+              <args>
+                <arg>-deprecation</arg>
+                <arg>-dependencyfile</arg>
+                <arg>${project.build.directory}/.scala_dependencies</arg>
+              </args>
+            </configuration>
           </execution>
         </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>2.4.3</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>
+                shade
+              </goal>
+            </goals>
+          </execution>
+        </executions>
+
         <configuration>
-          <args>
-            <!-- work-around for https://issues.scala-lang.org/browse/SI-8358 -->
-            <arg>-nobootcp</arg>
-          </args>
+          <minimizeJar>true</minimizeJar>
+          <shadedArtifactAttached>true</shadedArtifactAttached>
+          <shadedClassifierName>fat</shadedClassifierName>
+
+          <relocations>
+            <relocation>
+              <pattern>com.google</pattern>
+              <shadedPattern>shaded.guava</shadedPattern>
+              <includes>
+                <include>com.google.**</include>
+              </includes>
+
+              <excludes>
+                <exclude>com.google.common.base.Optional</exclude>
+                <exclude>com.google.common.base.Absent</exclude>
+                <exclude>com.google.common.base.Present</exclude>
+              </excludes>
+            </relocation>
+          </relocations>
+
+          <filters>
+            <filter>
+              <artifact>*:*</artifact>
+              <excludes>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+              </excludes>
+            </filter>
+          </filters>
+
         </configuration>
       </plugin>
+
       <plugin>
         <artifactId>maven-assembly-plugin</artifactId>
         <version>2.5.3</version>

@@ -46,10 +46,8 @@ object GeoExtractorByName {
 
     if ( statePolyList.size == 0 ) {
       println("No state shapes matching target: " + targetState)
-      exit(1)
+      sys.exit(1)
     }
-
-    val broad_StatePolyList = sc.broadcast(statePolyList)
 
     val twitterMsgsRaw = sc.textFile(dataPath)
     println("Initial Partition Count: " + twitterMsgsRaw.partitions.size)
@@ -82,8 +80,29 @@ object GeoExtractorByName {
       status.getGeoLocation != null
     })
 
+    val tweetsToStates = filterByGeoShape(geoTweets, statePolyList, sc)
+
+    tweetsToStates.map(tuple => {tuple._1}).repartition(newPartitionSize)
+      .saveAsTextFile(outputPath, classOf[org.apache.hadoop.io.compress.GzipCodec])
+  }
+
+  /**
+    * Given a set of tweets and list of shapes, filter by the shapes. Return an
+    * RDD of tweets whose geo coordinates are within the target shapes.
+    *
+    * @param tweets List of tweets
+    * @param targetShapes List of shapes in which the tweet should exist
+    */
+  def filterByGeoShape(tweets : RDD[(String, Status)],
+                       targetShapes : List[(String,MultiPolygon)],
+                       sc : SparkContext)
+  : RDD[(String, Status)] = {
+
+    // Broadcast the list of geographic shapes
+    val broad_polyList = sc.broadcast(targetShapes)
+
     // Filter based on whether the tweet is in the given location or not
-    val tweetsToStates : RDD[Tuple2[String,Status]] = geoTweets.filter(tuple => {
+    val tweetsToStates : RDD[Tuple2[String,Status]] = tweets.filter(tuple => {
       val status = tuple._2
 
       val geoLoc = status.getGeoLocation
@@ -94,7 +113,7 @@ object GeoExtractorByName {
       val testCoordinate = new Coordinate(lon, lat)
       val testGeo = geometer.createPoint(testCoordinate)
 
-      val polyList = broad_StatePolyList.value
+      val polyList = broad_polyList.value
       var foundFlag : Boolean = false
       var index = 0
 
@@ -112,8 +131,7 @@ object GeoExtractorByName {
       foundFlag
     })
 
-    tweetsToStates.map(tuple => {tuple._1}).repartition(newPartitionSize)
-      .saveAsTextFile(outputPath, classOf[org.apache.hadoop.io.compress.GzipCodec])
+    return tweetsToStates
   }
 
   /**

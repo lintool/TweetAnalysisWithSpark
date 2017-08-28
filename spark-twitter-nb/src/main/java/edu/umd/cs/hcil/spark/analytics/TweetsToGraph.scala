@@ -129,6 +129,10 @@ object TweetsToGraph {
   }
 
   def getGraph(tweets : RDD[Status]) : Graph[TwitterUser, Int] = {
+    return getGraph(tweets, 0)
+  }
+
+  def getGraph(tweets : RDD[Status], minDegree : Int) : Graph[TwitterUser, Int] = {
 
     val userMentionMap = tweets.flatMap(status => {
       val author = TwitterUser(status.getUser.getId, status.getUser.getScreenName)
@@ -166,7 +170,7 @@ object TweetsToGraph {
       }
     }
 
-    val subgraphWithDegree = degreeGraph.subgraph(vpred = (id, attr) => attr._2 > 0)
+    val subgraphWithDegree = degreeGraph.subgraph(vpred = (id, attr) => attr._2 > minDegree)
     val trimmedSub = subgraphWithDegree.mapVertices((id, attr) => attr._1)
 
     return trimmedSub

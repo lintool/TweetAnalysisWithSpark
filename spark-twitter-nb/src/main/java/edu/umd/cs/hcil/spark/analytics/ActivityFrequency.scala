@@ -90,6 +90,12 @@ object ActivityFrequency {
     //  about non-status lines.'
     val tweets = twitterMsgs.map(JsonUtils.jsonToStatus(_))
 
+    tweets.mapPartitions(iter => {
+      iter.map(status => {
+        status.getText
+      })
+    })
+
     val datedCounts = activityCounter(tweets, timeScale)
     
     // Convert to a CSV string and save

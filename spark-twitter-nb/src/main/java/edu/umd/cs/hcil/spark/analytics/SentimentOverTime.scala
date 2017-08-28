@@ -25,34 +25,10 @@ import edu.stanford.nlp.sentiment.SentimentCoreAnnotations
 import org.apache.spark.{SparkContext, _}
 import org.apache.spark.rdd.RDD
 import twitter4j.Status
-
 import edu.umd.cs.hcil.spark.analytics.utils.{JsonUtils, TimeScale}
+import edu.umd.cs.hcil.spark.analytics.sentiment.{CoreNlpClassifier, SentimentClassifier}
 
 object SentimentOverTime {
-
-  // This class wraps the instantiation of Stanford's CoreNLP pipeline, which
-  //  we use for lazy initialization on each node's JVM
-  class CoreNlpWrapper {
-    val pipelineProps = new Properties()
-    pipelineProps.setProperty("ssplit.eolonly", "true")
-    pipelineProps.setProperty("annotators", "parse, sentiment")
-    pipelineProps.setProperty("enforceRequirements", "false")
-    pipelineProps.setProperty("sentiment.model", "model.ser.gz")
-
-    val tokenizerProps = new Properties()
-    tokenizerProps.setProperty("annotators", "tokenize, ssplit")
-
-    val tokenizer : StanfordCoreNLP = new StanfordCoreNLP(tokenizerProps)
-    val pipeline : StanfordCoreNLP = new StanfordCoreNLP(pipelineProps)
-  }
-
-  // A wicked hack to perform expensive instantiation of the CoreNLP pipeline.
-  //  The transient annotation says to have a different coreNLP object in each
-  //  JVM, and the lazy tag tells the JVM to instantiate the object on first use
-  //  As a result, each node gets its own copy
-  object TransientCoreNLP {
-    @transient lazy val coreNLP = new CoreNlpWrapper()
-  }
 
   // Twitter's time format'
   def TIME_FORMAT = "EEE MMM d HH:mm:ss Z yyyy"
@@ -124,7 +100,7 @@ object SentimentOverTime {
 
 
     val timedText = tweetsFiltered.map(status => (status.getCreatedAt, status.getText))
-    val results = calculateSentimentOverTime(timedText, timeScale)
+    val results = calculateSentimentOverTime(timedText, timeScale, CoreNlpClassifier)
 
     for ( d <- results.keys.toList.sorted ) {
       println(d, results(d))
@@ -138,7 +114,7 @@ object SentimentOverTime {
     * @param tweets Tweet list
     * @param scale Time scale
     */
-  def calculateSentimentOverTime(tweets : RDD[(Date, String)], scale : TimeScale.Value) : Map[Date,Double] = {
+  def calculateSentimentOverTime(tweets : RDD[(Date, String)], scale : TimeScale.Value, sentClass : SentimentClassifier) : Map[Date,Double] = {
 
     // For each status, create a tuple with its creation time (flattened to the
     //  correct time scale) and a 1 for counting
@@ -151,21 +127,20 @@ object SentimentOverTime {
     val fullKeyList = constructDateList(minTime, maxTime, scale)
 
     // Map (date, tweet) to (date, (tweet, avg sentiment, pos count, neg count, and neutral count)) for that tweet
-    val timedTweetSentiments : RDD[(Date, (String, Double, Int, Int, Int))] =
+    val timedTweetSentiments : RDD[(Date, Double)] =
       timedTweets.map(tup => {
 
         val date = tup._1
         val status = tup._2
 
-        val sentTuple = calculateSentiment(status)
+        val sentiment = sentClass.calculateSentiment(status)
 
-        // Return tuple of average sentiment, and count of positive and negative
-        //  sentences
-        (date, sentTuple)
+        // Return tuple of average sentiment
+        (date, sentiment)
       })
 
     // Sum and count the sentiment values per date
-    val aggregatedDates = timedTweetSentiments.map(tup => (tup._1, tup._2._2))
+    val aggregatedDates = timedTweetSentiments.map(tup => (tup._1, tup._2))
       .aggregateByKey((0d, 0))(
         (accumSum, value) => {
           (accumSum._1 + value, accumSum._2 + 1)
@@ -185,61 +160,6 @@ object SentimentOverTime {
     val fullSentimentMap = fullKeyList.map(d => (d, datedSentiment.getOrElse(d, 0d))).toMap
 
     return fullSentimentMap
-  }
-
-  /**
-    * Given a tweet, determine its sentiment and return its average sentiment
-    * across all sentences, the number of positive sentences, the number of
-    * negative sentences, and the number of neutral sentences.
-    *
-    * @param status Status to test
-    */
-  def calculateSentiment(status : String) : (String, Double, Int, Int, Int) = {
-
-    val tokenizer = TransientCoreNLP.coreNLP.tokenizer
-    val pipeline = TransientCoreNLP.coreNLP.pipeline
-
-    var posCount = 0
-    var negCount = 0
-    var neutralCount = 0
-    var scoreSum = 0d
-    var sentenceCount = 0
-
-    // create an empty Annotation just with the given text
-    val document : Annotation = tokenizer.process(status)
-
-    // run all Annotators on this text
-    pipeline.annotate(document)
-
-    // For each sentence, calculate the sentiment and add to sum
-    val sentences = document.get(classOf[SentencesAnnotation]).asScala
-    for (sentence <- sentences) {
-
-      val tree = sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])
-
-      // The sentiment scale for the Stanford CoreNLP library is as follows:
-      // { 0:"Very Negative", 1:"Negative", 2:"Neutral", 3:"Positive", 4:"Very Positive"};
-      //  so we subtract 2 for scaling
-      val score = RNNCoreAnnotations.getPredictedClass(tree) - 2.0d
-
-      scoreSum += score
-      sentenceCount += 1
-
-      if ( score > 0 ) {
-        posCount += 1
-      }
-      else if ( score < 0 ) {
-        negCount += 1
-      } else {
-        neutralCount += 1
-      }
-    }
-
-    // Calculate average sentiment score using summed sentiment over sentences.
-    //  If no sentences were found, default to 2, which is neutral
-    val avgScore = if ( sentenceCount > 0 ) { scoreSum / sentenceCount } else { 0.0d }
-
-    return (status, avgScore, posCount, negCount, neutralCount)
   }
 
   /**

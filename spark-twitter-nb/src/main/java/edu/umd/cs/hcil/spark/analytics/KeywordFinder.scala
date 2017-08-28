@@ -16,7 +16,6 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import edu.umd.cs.hcil.spark.analytics.utils.{JsonUtils, StatusTokenizer}
 import twitter4j.Status
-import twitter4j.json.DataObjectFactory
 
 object KeywordFinder {
 

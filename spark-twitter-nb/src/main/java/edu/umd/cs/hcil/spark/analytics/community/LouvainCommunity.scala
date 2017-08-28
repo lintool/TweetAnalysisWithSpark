@@ -20,7 +20,7 @@ package edu.umd.cs.hcil.spark.analytics.community
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.graphx._
-import org.apache.spark.{Logging, SparkContext}
+import org.apache.spark.{SparkContext}
 
 import scala.reflect.ClassTag
 
@@ -29,7 +29,7 @@ import scala.reflect.ClassTag
   *  Based on Sotera's implementation, avaialble here:
   *  https://github.com/Sotera/distributed-graph-analytics/
   */
-class LouvainCommunity extends Logging with Serializable {
+class LouvainCommunity extends Serializable {
 
   /**
     * Generates a new graph of type Graph[VertexState,Long] based on an input graph of type.
